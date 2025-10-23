@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from bs4 import BeautifulSoup
 import requests
 import re
+import json
 
 app = FastAPI()
 
@@ -27,6 +28,9 @@ async def processar_pedidos(request: Request):
         
         if not html:
             return {"error": "html_email não fornecido", "sucesso": False}
+        
+        # Remove quebras de linha e caracteres de controle
+        html = html.replace("\n", " ").replace("\r", " ").replace("\t", " ")
         
         # Parse HTML com BeautifulSoup
         soup = BeautifulSoup(html, 'html.parser')
@@ -64,9 +68,12 @@ async def processar_pedidos(request: Request):
             "Authorization": f"Bearer {SUPABASE_TOKEN}"
         }
         
+        # Serializa JSON garantindo que não há caracteres inválidos
+        payload_json = json.dumps({"data": pedidos}, ensure_ascii=True)
+        
         response = requests.post(
             SUPABASE_URL,
-            json={"data": pedidos},
+            data=payload_json,
             headers=headers,
             timeout=30
         )
@@ -74,7 +81,6 @@ async def processar_pedidos(request: Request):
         return {
             "sucesso": response.status_code == 200,
             "pedidos_processados": len(pedidos),
-            "pedidos": pedidos,
             "supabase_response": response.json() if response.status_code == 200 else response.text,
             "status_code": response.status_code
         }
