@@ -23,21 +23,30 @@ async def processar_pedidos(request: Request):
     Recebe HTML do email, extrai pedidos e envia para Supabase
     """
     try:
-        payload = await request.json()
+        # Lê o payload como texto primeiro
+        body = await request.body()
+        body_str = body.decode('utf-8')
+        
+        # Remove caracteres de controle problemáticos
+        body_str = body_str.replace('\r', ' ').replace('\n', ' ').replace('\t', ' ')
+        
+        # Parse JSON
+        payload = json.loads(body_str)
         html = payload.get("html_email", "")
         
         if not html:
             return {"error": "html_email não fornecido", "sucesso": False}
         
-        # Remove quebras de linha e caracteres de controle
-        html = html.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+        # Remove caracteres de controle do HTML também
+        html = html.replace('\r', ' ').replace('\n', ' ').replace('\t', ' ')
         
         # Parse HTML com BeautifulSoup
         soup = BeautifulSoup(html, 'html.parser')
         
         # Encontra todas as linhas de pedido (destaca ou destacb)
+        # Aceita também x_destaca e x_destacb (formatação do Outlook)
         pedidos = []
-        for tr in soup.find_all('tr', class_=re.compile('destac[ab]')):
+        for tr in soup.find_all('tr', class_=re.compile('x?_?destac[ab]')):
             cells = tr.find_all('td')
             
             if len(cells) >= 12:
@@ -68,7 +77,7 @@ async def processar_pedidos(request: Request):
             "Authorization": f"Bearer {SUPABASE_TOKEN}"
         }
         
-        # Serializa JSON garantindo que não há caracteres inválidos
+        # Serializa JSON garantindo ASCII
         payload_json = json.dumps({"data": pedidos}, ensure_ascii=True)
         
         response = requests.post(
@@ -85,6 +94,12 @@ async def processar_pedidos(request: Request):
             "status_code": response.status_code
         }
     
+    except json.JSONDecodeError as e:
+        return {
+            "error": f"JSON Decode Error: {str(e)}",
+            "tipo": "json_error",
+            "sucesso": False
+        }
     except Exception as e:
         return {
             "error": str(e),
