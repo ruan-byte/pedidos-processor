@@ -1,3 +1,17 @@
+from fastapi import FastAPI, Request
+from bs4 import BeautifulSoup
+import json
+
+app = FastAPI()
+
+@app.get("/")
+async def root():
+    return {
+        "status": "online",
+        "message": "Servidor de processamento de pedidos",
+        "version": "2.0"
+    }
+
 @app.post("/processar-pedidos")
 async def processar_pedidos(request: Request):
     """
@@ -10,15 +24,7 @@ async def processar_pedidos(request: Request):
         # Remove espaços em branco extras e caracteres de controle
         body_str = body_str.strip().replace('\r', ' ').replace('\n', ' ').replace('\t', ' ')
         
-        # Se vem como string, parse primeiro
-        if body_str.startswith('"html_email"'):
-            # Caso especial: strings aninhadas
-            try:
-                payload = json.loads(body_str)
-            except:
-                return {"error": "JSON malformado", "sucesso": False, "data": []}
-        else:
-            payload = json.loads(body_str)
+        payload = json.loads(body_str)
         
         html = payload.get("html_email", "")
         
