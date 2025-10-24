@@ -21,6 +21,7 @@ async def root():
 async def processar_pedidos(request: Request):
     """
     Recebe HTML do email, extrai pedidos e envia para Supabase
+    Aceita text/plain e application/json
     """
     try:
         # Lê o payload como texto primeiro
@@ -30,8 +31,13 @@ async def processar_pedidos(request: Request):
         # Remove caracteres de controle problemáticos
         body_str = body_str.replace('\r', ' ').replace('\n', ' ').replace('\t', ' ')
         
-        # Parse JSON
-        payload = json.loads(body_str)
+        # Parse JSON - AGORA FUNCIONA COM AMBOS text/plain E application/json
+        try:
+            payload = json.loads(body_str)
+        except json.JSONDecodeError:
+            # Se não for JSON válido, trata como string simples
+            return {"error": "Payload inválido - não é JSON válido", "sucesso": False, "received": body_str[:100]}
+        
         html = payload.get("html_email", "")
         
         if not html:
@@ -44,30 +50,34 @@ async def processar_pedidos(request: Request):
         soup = BeautifulSoup(html, 'html.parser')
         
         # Encontra todas as linhas de pedido (destaca ou destacb)
-        # Aceita também x_destaca e x_destacb (formatação do Outlook)
         pedidos = []
-        for tr in soup.find_all('tr', class_=re.compile('x?_?destac[ab]')):
+        for tr in soup.find_all('tr', class_=re.compile(r'x?_?destac[ab]')):
             cells = tr.find_all('td')
             
             if len(cells) >= 12:
-                # Remove pontos de milhar e troca vírgula por ponto
-                total = cells[10].text.strip()
-                total = total.replace('.', '').replace(',', '.')
-                
-                pedido = {
-                    "Nr. Ped": cells[2].text.strip(),
-                    "Cliente": cells[4].text.strip(),
-                    "Total": total,
-                    "Vendedor": cells[6].text.strip(),
-                    "Data": cells[0].text.strip(),
-                    "Entrega Prod.": cells[1].text.strip()
-                }
-                pedidos.append(pedido)
+                try:
+                    # Remove pontos de milhar e troca vírgula por ponto
+                    total = cells[10].text.strip()
+                    total = total.replace('.', '').replace(',', '.')
+                    
+                    pedido = {
+                        "Nr. Ped": cells[2].text.strip(),
+                        "Cliente": cells[4].text.strip(),
+                        "Total": total,
+                        "Vendedor": cells[6].text.strip(),
+                        "Data": cells[0].text.strip(),
+                        "Entrega Prod.": cells[1].text.strip()
+                    }
+                    pedidos.append(pedido)
+                except IndexError as e:
+                    # Continua se uma linha tiver problema
+                    continue
         
         if not pedidos:
             return {
                 "error": "Nenhum pedido encontrado no HTML",
                 "pedidos_encontrados": 0,
+                "html_length": len(html),
                 "sucesso": False
             }
         
