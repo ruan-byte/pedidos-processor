@@ -1,62 +1,41 @@
-from fastapi import FastAPI, Request
-from bs4 import BeautifulSoup
-import requests
-import re
-import json
-
-app = FastAPI()
-
-SUPABASE_URL = "https://gnpgiraaoscuvmfwcgxu.supabase.co/functions/v1/import-pedidos-dia"
-SUPABASE_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImducGdpcmFhb3NjdXZtZndjZ3h1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA0NTcxODQsImV4cCI6MjA3NjAzMzE4NH0.rfPZEgi1aYyc0ebm8bIBat7zG1BgrinjL4uk34wk7lk"
-
-@app.get("/")
-async def root():
-    return {
-        "status": "online",
-        "message": "Servidor de processamento de pedidos",
-        "version": "1.0"
-    }
-
 @app.post("/processar-pedidos")
 async def processar_pedidos(request: Request):
     """
-    Recebe HTML do email, extrai pedidos e envia para Supabase
-    Aceita text/plain e application/json
+    APENAS PROCESSA E RETORNA PEDIDOS (não envia para Supabase)
+    O Make faz isso depois no HTTP 2
     """
     try:
-        # Lê o payload como texto primeiro
+        # Lê o payload como texto
         body = await request.body()
         body_str = body.decode('utf-8')
         
-        # Remove caracteres de controle problemáticos
+        # Remove caracteres de controle
         body_str = body_str.replace('\r', ' ').replace('\n', ' ').replace('\t', ' ')
         
-        # Parse JSON - AGORA FUNCIONA COM AMBOS text/plain E application/json
+        # Parse JSON
         try:
             payload = json.loads(body_str)
-        except json.JSONDecodeError:
-            # Se não for JSON válido, trata como string simples
-            return {"error": "Payload inválido - não é JSON válido", "sucesso": False, "received": body_str[:100]}
+        except json.JSONDecodeError as e:
+            return {"error": f"JSON inválido: {str(e)}", "sucesso": False}
         
         html = payload.get("html_email", "")
         
         if not html:
             return {"error": "html_email não fornecido", "sucesso": False}
         
-        # Remove caracteres de controle do HTML também
+        # Remove caracteres de controle do HTML
         html = html.replace('\r', ' ').replace('\n', ' ').replace('\t', ' ')
         
         # Parse HTML com BeautifulSoup
         soup = BeautifulSoup(html, 'html.parser')
         
-        # Encontra todas as linhas de pedido (destaca ou destacb)
+        # Encontra todas as linhas de pedido
         pedidos = []
         for tr in soup.find_all('tr', class_=re.compile(r'x?_?destac[ab]')):
             cells = tr.find_all('td')
             
             if len(cells) >= 12:
                 try:
-                    # Remove pontos de milhar e troca vírgula por ponto
                     total = cells[10].text.strip()
                     total = total.replace('.', '').replace(',', '.')
                     
@@ -69,47 +48,23 @@ async def processar_pedidos(request: Request):
                         "Entrega Prod.": cells[1].text.strip()
                     }
                     pedidos.append(pedido)
-                except IndexError as e:
-                    # Continua se uma linha tiver problema
+                except (IndexError, AttributeError):
                     continue
         
         if not pedidos:
             return {
-                "error": "Nenhum pedido encontrado no HTML",
-                "pedidos_encontrados": 0,
-                "html_length": len(html),
-                "sucesso": False
+                "error": "Nenhum pedido encontrado",
+                "sucesso": False,
+                "data": []
             }
         
-        # Envia para Supabase
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {SUPABASE_TOKEN}"
-        }
-        
-        # Serializa JSON garantindo ASCII
-        payload_json = json.dumps({"data": pedidos}, ensure_ascii=True)
-        
-        response = requests.post(
-            SUPABASE_URL,
-            data=payload_json,
-            headers=headers,
-            timeout=30
-        )
-        
+        # ✅ APENAS RETORNA OS PEDIDOS (não envia para Supabase aqui!)
         return {
-            "sucesso": response.status_code == 200,
+            "sucesso": True,
             "pedidos_processados": len(pedidos),
-            "supabase_response": response.json() if response.status_code == 200 else response.text,
-            "status_code": response.status_code
+            "data": pedidos
         }
     
-    except json.JSONDecodeError as e:
-        return {
-            "error": f"JSON Decode Error: {str(e)}",
-            "tipo": "json_error",
-            "sucesso": False
-        }
     except Exception as e:
         return {
             "error": str(e),
