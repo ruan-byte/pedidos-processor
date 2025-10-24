@@ -63,12 +63,13 @@ async def processar_pedidos(request: Request):
                 
                 # Cria objeto
                 pedido = {
-                    "data_pedido": data_pedido,
-                    "nr_pedido": nr_pedido,
-                    "cliente": cliente,
-                    "vendedor": vendedor,
-                    "total": total
-                }
+    "Data": data_pedido,           # Era data_pedido
+    "Entrega Prod.": entrega_prod, # Adicione este campo!
+    "Nr. Ped": nr_pedido,          # Era nr_pedido
+    "Cliente": cliente,
+    "Vendedor": vendedor,
+    "Total": total
+}
                 pedidos.append(pedido)
                 
             except (IndexError, AttributeError, ValueError):
@@ -78,4 +79,7 @@ async def processar_pedidos(request: Request):
         return pedidos
     
     except Exception as e:
-        return []
+    return {
+        "error": str(e),
+        "pedidos": []
+    }
