@@ -1,35 +1,38 @@
+from fastapi import FastAPI, Request
+from bs4 import BeautifulSoup
+import re
+import json
+
+app = FastAPI()
+
+@app.get("/")
+async def root():
+    return {
+        "status": "online",
+        "message": "Servidor de processamento de pedidos",
+        "version": "2.0"
+    }
+
 @app.post("/processar-pedidos")
 async def processar_pedidos(request: Request):
     """
-    APENAS PROCESSA E RETORNA PEDIDOS (não envia para Supabase)
-    O Make faz isso depois no HTTP 2
+    Processa HTML e retorna JSON com pedidos
+    (não envia para Supabase - Make faz isso!)
     """
     try:
-        # Lê o payload como texto
         body = await request.body()
         body_str = body.decode('utf-8')
-        
-        # Remove caracteres de controle
         body_str = body_str.replace('\r', ' ').replace('\n', ' ').replace('\t', ' ')
         
-        # Parse JSON
-        try:
-            payload = json.loads(body_str)
-        except json.JSONDecodeError as e:
-            return {"error": f"JSON inválido: {str(e)}", "sucesso": False}
-        
+        payload = json.loads(body_str)
         html = payload.get("html_email", "")
         
         if not html:
-            return {"error": "html_email não fornecido", "sucesso": False}
+            return {"error": "html_email não fornecido", "sucesso": False, "data": []}
         
-        # Remove caracteres de controle do HTML
         html = html.replace('\r', ' ').replace('\n', ' ').replace('\t', ' ')
-        
-        # Parse HTML com BeautifulSoup
         soup = BeautifulSoup(html, 'html.parser')
         
-        # Encontra todas as linhas de pedido
         pedidos = []
         for tr in soup.find_all('tr', class_=re.compile(r'x?_?destac[ab]')):
             cells = tr.find_all('td')
@@ -51,23 +54,11 @@ async def processar_pedidos(request: Request):
                 except (IndexError, AttributeError):
                     continue
         
-        if not pedidos:
-            return {
-                "error": "Nenhum pedido encontrado",
-                "sucesso": False,
-                "data": []
-            }
-        
-        # ✅ APENAS RETORNA OS PEDIDOS (não envia para Supabase aqui!)
         return {
-            "sucesso": True,
+            "sucesso": len(pedidos) > 0,
             "pedidos_processados": len(pedidos),
             "data": pedidos
         }
     
     except Exception as e:
-        return {
-            "error": str(e),
-            "tipo": "exception",
-            "sucesso": False
-        }
+        return {"error": str(e), "sucesso": False, "data": []}
