@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from bs4 import BeautifulSoup
 import json
+import re
 
 app = FastAPI()
 
@@ -9,7 +10,7 @@ async def root():
     return {
         "status": "online",
         "message": "Servidor de processamento de pedidos",
-        "version": "2.0"
+        "version": "2.1"
     }
 
 @app.post("/processar-pedidos")
@@ -18,49 +19,67 @@ async def processar_pedidos(request: Request):
     Processa HTML e retorna JSON com pedidos
     """
     try:
+        # Lê o payload
         body = await request.body()
         body_str = body.decode('utf-8')
         
-        # Remove espaços em branco extras e caracteres de controle
-        body_str = body_str.strip().replace('\r', ' ').replace('\n', ' ').replace('\t', ' ')
+        # Tira espaços e quebras
+        body_str = body_str.strip()
         
-        payload = json.loads(body_str)
+        # Parse JSON - trata erros de aspas
+        try:
+            payload = json.loads(body_str)
+        except json.JSONDecodeError as e:
+            return {"error": f"JSON Error: {str(e)}", "sucesso": False, "data": []}
         
         html = payload.get("html_email", "")
         
-        if not html or html.strip() == "":
-            return {"error": "html_email vazio", "sucesso": False, "data": []}
+        if not html or not isinstance(html, str):
+            return {"error": "html_email inválido", "sucesso": False, "data": []}
         
-        # Remove controle do HTML
-        html = html.replace('\r', ' ').replace('\n', ' ').replace('\t', ' ')
+        # Remove quebras e tabs do HTML
+        html = re.sub(r'[\r\n\t]+', ' ', html)
         
         soup = BeautifulSoup(html, 'html.parser')
         pedidos = []
         
+        # Procura por todas as linhas (tr) com dados
         for tr in soup.find_all('tr'):
-            # Verifica se tem as classes corretas
-            classes = tr.get('class', [])
-            if not any(c in ['destaca', 'destacb', 'x_destaca', 'x_destacb'] for c in classes):
+            classes = tr.get('class', []) if tr.get('class') else []
+            
+            # Verifica se tem classes de pedido
+            if not any('destaca' in str(c) for c in classes):
                 continue
-                
+            
             cells = tr.find_all('td')
-            if len(cells) < 12:
+            if len(cells) < 11:
                 continue
             
             try:
-                total = cells[10].text.strip()
-                total = total.replace('.', '').replace(',', '.')
+                # Extrai dados
+                data = cells[0].get_text(strip=True)
+                nr_ped = cells[2].get_text(strip=True)
+                cliente = cells[4].get_text(strip=True)
+                vendedor = cells[6].get_text(strip=True)
+                total_str = cells[10].get_text(strip=True)
+                
+                # Converte total (remove pontos e troca vírgula)
+                total = total_str.replace('.', '').replace(',', '.')
+                
+                # Validação básica
+                if not nr_ped or not cliente:
+                    continue
                 
                 pedido = {
-                    "Nr. Ped": cells[2].text.strip(),
-                    "Cliente": cells[4].text.strip(),
-                    "Total": total,
-                    "Vendedor": cells[6].text.strip(),
-                    "Data": cells[0].text.strip(),
-                    "Entrega Prod.": cells[1].text.strip()
+                    "Nr. Ped": nr_ped,
+                    "Cliente": cliente,
+                    "Vendedor": vendedor,
+                    "Data": data,
+                    "Total": total
                 }
                 pedidos.append(pedido)
-            except Exception:
+                
+            except (IndexError, AttributeError, ValueError):
                 continue
         
         return {
@@ -70,4 +89,8 @@ async def processar_pedidos(request: Request):
         }
     
     except Exception as e:
-        return {"error": str(e), "sucesso": False, "data": []}
+        return {
+            "error": str(e),
+            "sucesso": False,
+            "data": []
+        }
