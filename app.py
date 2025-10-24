@@ -7,7 +7,7 @@ app = FastAPI()
 
 @app.get("/")
 async def root():
-    return {"status": "online", "version": "3.0"}
+    return {"status": "online", "version": "3.1"}
 
 @app.post("/processar-pedidos")
 async def processar_pedidos(request: Request):
@@ -26,7 +26,7 @@ async def processar_pedidos(request: Request):
             html = body_str
         
         if not html:
-            return []
+            return {"pedidos": [], "total": 0}
         
         # Remove quebras e tabs
         html = re.sub(r'[\r\n\t]+', ' ', html)
@@ -47,39 +47,47 @@ async def processar_pedidos(request: Request):
                 continue
             
             try:
-                # Extrai dados
-                data_pedido = cells[0].get_text(strip=True)
-                nr_pedido = cells[2].get_text(strip=True)
-                cliente = cells[4].get_text(strip=True)
-                vendedor = cells[6].get_text(strip=True)
-                total_str = cells[10].get_text(strip=True)
+                # ✅ Extrai TODOS os dados necessários
+                data_pedido = cells[0].get_text(strip=True)      # Coluna 0
+                entrega_prod = cells[1].get_text(strip=True)     # Coluna 1 - ADICIONADO!
+                nr_pedido = cells[2].get_text(strip=True)        # Coluna 2
+                cliente = cells[4].get_text(strip=True)          # Coluna 4
+                vendedor = cells[6].get_text(strip=True)         # Coluna 6
+                total_str = cells[10].get_text(strip=True)       # Coluna 10
                 
-                # Converte total
+                # Converte total (remove pontos de milhar, troca vírgula por ponto)
                 total = total_str.replace('.', '').replace(',', '.')
                 
-                # Validação
+                # Validação básica
                 if not nr_pedido or not cliente:
                     continue
                 
-                # Cria objeto
+                # ✅ Cria objeto com campos corretos
                 pedido = {
-    "Data": data_pedido,           # Era data_pedido
-    "Entrega Prod.": entrega_prod, # Adicione este campo!
-    "Nr. Ped": nr_pedido,          # Era nr_pedido
-    "Cliente": cliente,
-    "Vendedor": vendedor,
-    "Total": total
-}
+                    "Data": data_pedido,
+                    "Entrega Prod.": entrega_prod,
+                    "Nr. Ped": nr_pedido,
+                    "Cliente": cliente,
+                    "Vendedor": vendedor,
+                    "Total": total
+                }
                 pedidos.append(pedido)
                 
-            except (IndexError, AttributeError, ValueError):
+            except (IndexError, AttributeError, ValueError) as e:
+                # Log do erro mas continua processando
+                print(f"Erro ao processar linha: {e}")
                 continue
         
-        # ✅ RETORNA ARRAY DIRETO (não wrapped)
-        return pedidos
+        # ✅ Retorna objeto com array e contagem
+        return {
+            "pedidos": pedidos,
+            "total": len(pedidos)
+        }
     
     except Exception as e:
-    return {
-        "error": str(e),
-        "pedidos": []
-    }
+        # ✅ Indentação correta!
+        return {
+            "error": str(e),
+            "pedidos": [],
+            "total": 0
+        }
