@@ -7,7 +7,7 @@ app = FastAPI()
 
 @app.get("/")
 async def root():
-    return {"status": "online", "version": "3.3"}
+    return {"status": "online", "version": "3.4"}
 
 @app.post("/processar-pedidos")
 async def processar_pedidos(request: Request):
@@ -39,24 +39,25 @@ async def processar_pedidos(request: Request):
             
             cells = tr.find_all('td')
             
-            # ✅ Verifica se tem pelo menos 12 células (era 11 antes)
-            if len(cells) < 12:
+            if len(cells) < 11:
                 continue
             
             try:
-                # ✅ ÍNDICES CORRETOS
-                data_pedido = cells[0].get_text(strip=True)      # Data
-                entrega_prod = cells[1].get_text(strip=True)     # DtEntrPro
-                nr_pedido = cells[2].get_text(strip=True)        # Nr. Ped
-                cod_cli = cells[3].get_text(strip=True)          # Cod. Cli
-                cliente = cells[4].get_text(strip=True)          # Cliente
-                cod_vend = cells[5].get_text(strip=True)         # Cod. Vend
-                vendedor = cells[6].get_text(strip=True)         # Vendedor
-                prazo = cells[7].get_text(strip=True)            # Prazo
-                cfop = cells[8].get_text(strip=True)             # CFOP
-                sit_fat = cells[9].get_text(strip=True)          # Sit. Fat
-                total_str = cells[10].get_text(strip=True)       # Total
-                empresa = cells[11].get_text(strip=True)         # Empresa
+                # ✅ MAPEAMENTO CORRETO BASEADO NOS SEUS DADOS
+                data_pedido = cells[0].get_text(strip=True)      # Data: "27/10/2025"
+                nr_pedido = cells[1].get_text(strip=True)        # Nr. Ped: "297049"
+                cod_cli = cells[2].get_text(strip=True)          # Cod. Cli: "15756"
+                cod_vend = cells[3].get_text(strip=True)         # Cod. Vend: "259"
+                prazo = cells[4].get_text(strip=True)            # Prazo: "28 DDL"
+                empresa = cells[5].get_text(strip=True)          # Empresa: "ASITECH"
+                cliente = cells[6].get_text(strip=True)          # Cliente: "JANLEAF..."
+                cfop = cells[7].get_text(strip=True)             # CFOP: "5.102"
+                sit_fat = cells[8].get_text(strip=True)          # Sit. Fat: "Faturado"
+                total_str = cells[9].get_text(strip=True)        # Total: "373,50"
+                entrega_prod = cells[10].get_text(strip=True)    # Entrega Prod: "27/10/2025"
+                
+                # Pega o vendedor completo (se houver cells[11], senão usa cod_vend)
+                vendedor = cells[11].get_text(strip=True) if len(cells) > 11 else f"{cod_vend} - (Nome não encontrado)"
                 
                 # Converte total
                 total = total_str.replace('.', '').replace(',', '.')
@@ -65,27 +66,25 @@ async def processar_pedidos(request: Request):
                 if not nr_pedido or not cliente:
                     continue
                 
-                # ✅ Objeto com campos corretos
+                # ✅ Objeto com ordem correta
                 pedido = {
                     "Data": data_pedido,
                     "Entrega Prod.": entrega_prod,
                     "Nr. Ped": nr_pedido,
                     "Cliente": cliente,
                     "Vendedor": vendedor,
-                    "Total": total,
-                    "Cod. Cli.": cod_cli,
-                    "Prazo": prazo,
-                    "CFOP": cfop,
-                    "Sit. Fat.": sit_fat,
-                    "Empresa": empresa
+                    "Total": total
                 }
                 pedidos.append(pedido)
                 
-                # 🐛 DEBUG: Log cada pedido processado
                 print(f"✅ Pedido {nr_pedido}: {cliente} - R$ {total}")
                 
             except (IndexError, AttributeError, ValueError) as e:
                 print(f"⚠️ Erro ao processar linha: {e}")
+                # Imprime células para debug
+                print(f"   Células disponíveis: {len(cells)}")
+                for i, cell in enumerate(cells[:12]):  # Mostra até 12
+                    print(f"   cells[{i}] = {cell.get_text(strip=True)[:30]}")
                 continue
         
         print(f"\n🎉 Total processado: {len(pedidos)} pedidos")
