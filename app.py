@@ -7,7 +7,7 @@ app = FastAPI()
 
 @app.get("/")
 async def root():
-    return {"status": "online", "version": "4.0"}
+    return {"status": "online", "version": "4.1"}
 
 def converter_valor_brasileiro(valor_str: str) -> str:
     """
@@ -28,9 +28,6 @@ def converter_valor_brasileiro(valor_str: str) -> str:
         if not valor_limpo:
             return "0"
         
-        # Formato brasileiro: usa . para milhares e , para decimal
-        # Estratégia: remove TODOS os pontos (milhares) e troca vírgula por ponto (decimal)
-        
         # Se tem vírgula, é formato brasileiro
         if ',' in valor_limpo:
             # Remove pontos (separador de milhar)
@@ -39,7 +36,6 @@ def converter_valor_brasileiro(valor_str: str) -> str:
             valor_final = valor_sem_pontos.replace(',', '.')
         else:
             # Não tem vírgula, só ponto
-            # Pode ser formato americano OU número inteiro com separador de milhar
             partes = valor_limpo.split('.')
             
             if len(partes) == 2 and len(partes[1]) == 2:
@@ -92,35 +88,54 @@ async def processar_pedidos(request: Request):
             
             cells = tr.find_all('td')
             
-            # Verifica se tem pelo menos 11 células
-            if len(cells) < 11:
+            # 🐛 DEBUG: Mostra quantas células tem
+            print(f"📊 Linha com {len(cells)} células")
+            
+            # ✅ ESTRUTURA COMPLETA COM 12 COLUNAS (COM DtEntrPro)
+            # cells[0]  = Data
+            # cells[1]  = DtEntrPro (Entrega Prod.)
+            # cells[2]  = Nr. Ped
+            # cells[3]  = Cod. Cli
+            # cells[4]  = Cliente
+            # cells[5]  = Cod. Vend
+            # cells[6]  = Vendedor
+            # cells[7]  = Prazo
+            # cells[8]  = CFOP
+            # cells[9]  = Sit. Fat
+            # cells[10] = Total
+            # cells[11] = Empresa
+            
+            if len(cells) < 12:
+                print(f"⚠️ Linha ignorada: só tem {len(cells)} células (esperado 12)")
                 continue
             
             try:
-                # Extrai dados conforme estrutura HTML atual
+                # ✅ ÍNDICES CORRETOS PARA 12 COLUNAS
                 data_pedido = cells[0].get_text(strip=True)      # Data
-                nr_pedido = cells[1].get_text(strip=True)        # Nr. Ped
-                cod_cli = cells[2].get_text(strip=True)          # Cod. Cli
-                cliente = cells[3].get_text(strip=True)          # Cliente
-                cod_vend = cells[4].get_text(strip=True)         # Cod. Vend
-                vendedor = cells[5].get_text(strip=True)         # Vendedor
-                prazo = cells[6].get_text(strip=True)            # Prazo
-                cfop = cells[7].get_text(strip=True)             # CFOP
-                sit_fat = cells[8].get_text(strip=True)          # Sit. Fat
-                total_str = cells[9].get_text(strip=True)        # Total
-                empresa = cells[10].get_text(strip=True)         # Empresa
+                entrega_prod = cells[1].get_text(strip=True)     # DtEntrPro
+                nr_pedido = cells[2].get_text(strip=True)        # Nr. Ped
+                cod_cli = cells[3].get_text(strip=True)          # Cod. Cli
+                cliente = cells[4].get_text(strip=True)          # Cliente
+                cod_vend = cells[5].get_text(strip=True)         # Cod. Vend
+                vendedor = cells[6].get_text(strip=True)         # Vendedor
+                prazo = cells[7].get_text(strip=True)            # Prazo
+                cfop = cells[8].get_text(strip=True)             # CFOP
+                sit_fat = cells[9].get_text(strip=True)          # Sit. Fat
+                total_str = cells[10].get_text(strip=True)       # Total
+                empresa = cells[11].get_text(strip=True)         # Empresa
                 
                 # ✅ Converte o valor usando função robusta
                 total = converter_valor_brasileiro(total_str)
                 
                 # Validação básica
                 if not nr_pedido or not cliente:
+                    print(f"⚠️ Pedido ignorado: Nr.Ped='{nr_pedido}', Cliente='{cliente}'")
                     continue
                 
                 # Cria objeto do pedido
                 pedido = {
                     "Data": data_pedido,
-                    "Entrega Prod.": data_pedido,  # Usa mesma data (não existe mais no HTML)
+                    "Entrega Prod.": entrega_prod,  # ✅ Agora pega a coluna correta
                     "Nr. Ped": nr_pedido,
                     "Cliente": cliente,
                     "Vendedor": vendedor,
@@ -128,10 +143,14 @@ async def processar_pedidos(request: Request):
                 }
                 pedidos.append(pedido)
                 
-                print(f"✅ Pedido {nr_pedido}: {cliente} - R$ {total} (original: {total_str})")
+                print(f"✅ Pedido {nr_pedido}: {cliente[:30]}... - R$ {total}")
                 
             except (IndexError, AttributeError, ValueError) as e:
                 print(f"⚠️ Erro ao processar linha: {e}")
+                # Mostra as primeiras células para debug
+                for i in range(min(12, len(cells))):
+                    valor = cells[i].get_text(strip=True)
+                    print(f"   cells[{i}] = {valor[:50]}")
                 continue
         
         print(f"\n🎉 Total de pedidos processados: {len(pedidos)}")
