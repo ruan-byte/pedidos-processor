@@ -54,6 +54,100 @@ def converter_valor_brasileiro(valor_str: str) -> str:
         print(f"❌ Erro ao converter valor '{valor_str}': {e}")
         return "0"
 
+@app.post("/processar-faturamento")
+async def processar_faturamento(request: Request):
+    """
+    Lê o HTML do email de faturamento e devolve lista de objetos:
+    [
+      {
+        "Cod. Cli./For.": "...",
+        "Cliente/Fornecedor": "...",
+        "Data": "01/10/2025",
+        "Total Item": "502.50",
+        "Vendedor": "...",
+        "Ref. Produto": "...",
+        "Des. Grupo Completa": "...",
+        "Marca": "...",
+        "Cidade": "...",
+        "Estado": "..."
+      }
+    ]
+    """
+    try:
+        body = await request.body()
+        body_str = body.decode("utf-8").strip()
+
+        try:
+            payload = json.loads(body_str)
+            html = payload.get("html_email", "")
+        except:
+            html = body_str
+
+        if not html:
+            return []
+
+        html = re.sub(r"[\r\n\t]+", " ", html)
+        soup = BeautifulSoup(html, "html.parser")
+        faturamento = []
+
+        for tr in soup.find_all("tr"):
+            classes = tr.get("class", []) or []
+            if not any("destac" in str(c) for c in classes):
+                continue
+
+            cells = tr.find_all("td")
+            if len(cells) < 16:
+                print(f"⚠️ Linha ignorada (só {len(cells)} colunas)")
+                continue
+
+            try:
+                cod_cli_for = cells[0].get_text(strip=True)
+                cliente = cells[1].get_text(strip=True)
+                data = cells[2].get_text(strip=True)
+                ref_produto = cells[5].get_text(strip=True)
+                grupo = cells[7].get_text(strip=True)
+                total_str = cells[9].get_text(strip=True)
+                vendedor = cells[11].get_text(strip=True)
+                marca = cells[12].get_text(strip=True)
+                cidade = cells[13].get_text(strip=True)
+                estado = cells[14].get_text(strip=True)
+
+                total = converter_valor_brasileiro(total_str)
+
+                if not cliente or not total:
+                    continue
+
+                item = {
+                    "Cod. Cli./For.": cod_cli_for,
+                    "Cliente/Fornecedor": cliente,
+                    "Data": data,
+                    "Total Item": total,
+                    "Vendedor": vendedor,
+                    "Ref. Produto": ref_produto,
+                    "Des. Grupo Completa": grupo,
+                    "Marca": marca,
+                    "Cidade": cidade,
+                    "Estado": estado
+                }
+                faturamento.append(item)
+
+                print(f"💰 {cliente[:35]}... | R$ {total} | {vendedor[:30]}")
+
+            except Exception as e:
+                print(f"⚠️ Erro na linha: {e}")
+                for i in range(min(len(cells), 16)):
+                    print(f"   cells[{i}] = {cells[i].get_text(strip=True)}")
+                continue
+
+        print(f"📦 Total processado: {len(faturamento)} registros de faturamento")
+        return faturamento
+
+    except Exception as e:
+        print(f"❌ Erro geral: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
 @app.post("/processar-pedidos")
 async def processar_pedidos(request: Request):
     """
