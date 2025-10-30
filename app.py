@@ -7,7 +7,7 @@ app = FastAPI()
 
 @app.get("/")
 async def root():
-    return {"status": "online", "version": "4.2"}
+    return {"status": "online", "version": "4.3"}
 
 def converter_valor_brasileiro(valor_str: str) -> str:
     """
@@ -17,6 +17,7 @@ def converter_valor_brasileiro(valor_str: str) -> str:
     - "9.455,00" -> "9455.00"
     - "373,50" -> "373.50"
     - "1.620,00" -> "1620.00"
+    - "2.545,00" -> "2545.00"
     """
     try:
         # Remove espaços
@@ -153,6 +154,9 @@ async def processar_pedidos(request: Request):
     """
     Processa HTML de email e retorna array de pedidos.
     
+    ⚠️ ATENÇÃO: O HTML recebido tem tags <tr> malformadas (não fechadas).
+    Usamos html5lib parser que é mais tolerante a HTML malformado.
+    
     ESTRUTURA ESPERADA DA TABELA (12 colunas):
     cells[0]  = Data
     cells[1]  = DtEntrPro (Entrega Prod.)
@@ -178,19 +182,33 @@ async def processar_pedidos(request: Request):
             html = body_str
         
         if not html:
+            print("❌ HTML vazio!")
             return []
         
-        # Remove quebras de linha e tabs
-        html = re.sub(r'[\r\n\t]+', ' ', html)
+        print(f"📥 HTML recebido: {len(html)} caracteres")
         
-        soup = BeautifulSoup(html, 'html.parser')
+        # ✅ USA html5lib PARA PARSEAR HTML MALFORMADO
+        # O html5lib corrige automaticamente tags não fechadas
+        try:
+            soup = BeautifulSoup(html, 'html5lib')
+        except:
+            # Fallback para html.parser se html5lib não estiver disponível
+            print("⚠️ html5lib não disponível, usando html.parser")
+            soup = BeautifulSoup(html, 'html.parser')
+        
         pedidos = []
         linhas_processadas = 0
         linhas_ignoradas = 0
         
+        print("🔍 Procurando linhas com classe 'destaca' ou 'destacb'...")
+        
         # Procura todas as linhas com classe "destaca" ou "destacb"
         for tr in soup.find_all('tr'):
             classes = tr.get('class', []) if tr.get('class') else []
+            
+            # Debug: mostra todas as classes encontradas
+            if classes:
+                print(f"   Encontrada linha com classe: {classes}")
             
             # Verifica se tem classe de pedido
             if not any('destac' in str(c) for c in classes):
@@ -199,15 +217,17 @@ async def processar_pedidos(request: Request):
             cells = tr.find_all('td')
             linhas_processadas += 1
             
-            # ✅ Validação: deve ter exatamente 12 colunas
+            print(f"\n📋 Processando linha {linhas_processadas} com {len(cells)} células")
+            
+            # ✅ ACEITA 12 COLUNAS (ESTRUTURA COMPLETA)
             if len(cells) != 12:
                 print(f"⚠️ Linha {linhas_processadas} ignorada: tem {len(cells)} células (esperado 12)")
                 linhas_ignoradas += 1
                 
-                # 🐛 DEBUG: Mostra o conteúdo das células para diagnóstico
-                if len(cells) > 0:
-                    print(f"   Primeira célula: {cells[0].get_text(strip=True)[:50]}")
-                    print(f"   Última célula: {cells[-1].get_text(strip=True)[:50]}")
+                # 🐛 DEBUG: Mostra o conteúdo das células
+                for i, cell in enumerate(cells[:15]):  # Mostra até 15 células
+                    texto = cell.get_text(strip=True)[:60]
+                    print(f"   cells[{i}] = {texto}")
                 
                 continue
             
@@ -226,8 +246,13 @@ async def processar_pedidos(request: Request):
                 total_str = cells[10].get_text(strip=True)       # Total
                 empresa = cells[11].get_text(strip=True)         # Empresa
                 
+                print(f"   Nr. Pedido: {nr_pedido}")
+                print(f"   Cliente: {cliente[:40]}...")
+                print(f"   Total (raw): {total_str}")
+                
                 # ✅ Converte o valor usando função robusta
                 total = converter_valor_brasileiro(total_str)
+                print(f"   Total (convertido): {total}")
                 
                 # ✅ Validação mínima: campos obrigatórios
                 if not nr_pedido or not cliente or not data_pedido:
@@ -264,13 +289,6 @@ async def processar_pedidos(request: Request):
             except (IndexError, AttributeError, ValueError) as e:
                 print(f"❌ Erro ao processar linha {linhas_processadas}: {e}")
                 print(f"   Tipo de erro: {type(e).__name__}")
-                
-                # 🐛 DEBUG: Mostra as células para diagnóstico
-                print(f"   Total de células: {len(cells)}")
-                for i in range(min(12, len(cells))):
-                    valor = cells[i].get_text(strip=True)
-                    print(f"   cells[{i}] = {valor[:60]}")
-                
                 linhas_ignoradas += 1
                 import traceback
                 traceback.print_exc()
